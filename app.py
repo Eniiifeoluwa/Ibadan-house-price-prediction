@@ -63,18 +63,15 @@ st.write("### 🧾 Entered Property Details")
 st.dataframe(input_df)
 
 if st.button("💰 Predict House Price"):
-    # Predict
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
-    st.success(f"🏷️ Estimated Property Price: ₦{price:,.0f}")
+    st.success(f"🏷️ Estimated Property Price: ₦{price * 10:,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
     try:
-        # Extract pipeline steps
         xgb_final = model.named_steps["model"]
         preprocessor = model.named_steps["pre"]
 
-        # Transform inputs
         X_trans = preprocessor.transform(input_df)
         if hasattr(X_trans, "toarray"):
             X_trans = X_trans.toarray()
@@ -82,7 +79,6 @@ if st.button("💰 Predict House Price"):
 
         feature_names = preprocessor.get_feature_names_out()
 
-        # Patch base_score if needed
         try:
             booster = xgb_final.get_booster()
             base_score_attr = booster.attr("base_score")
@@ -92,11 +88,10 @@ if st.button("💰 Predict House Price"):
         except:
             pass
 
-        # Initialize SHAP explainer
         try:
             explainer = shap.TreeExplainer(xgb_final)
         except Exception as e:
-            st.warning(f"TreeExplainer failed ({e}), falling back to model-agnostic explainer.")
+            #st.warning(f"TreeExplainer failed ({e}), falling back to model-agnostic explainer.")
             explainer = shap.Explainer(xgb_final.predict, X_trans)
 
         # Compute SHAP values
