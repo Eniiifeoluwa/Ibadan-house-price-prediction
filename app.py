@@ -1,19 +1,13 @@
-# ============================================
-# Streamlit App — Live Predictive House Prices in Ibadan
-# ============================================
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import shap
 import matplotlib.pyplot as plt
-import hashlib, json
+import hashlib
 
 st.set_page_config(page_title="Ibadan House Price Predictor", layout="wide")
 
-# -----------------------------------------------------------
-# Load trained model
-# -----------------------------------------------------------
 @st.cache_resource
 def load_model():
     return joblib.load("artifacts/best_model_pipeline.joblib")
@@ -23,12 +17,8 @@ model = load_model()
 st.title("🏡 Live Predictive House Prices — Ibadan")
 st.caption("Localized predictive model for Ibadan's residential market")
 
-# -----------------------------------------------------------
-# Sidebar: property features
-# -----------------------------------------------------------
 st.sidebar.header("🏠 Property Features")
 
-neighs = ["Agbowo", "Bodija", "GRA", "Moniya", "Ojoo", "Sango", "IbadanNorth"]
 zones = ["RL", "RM", "C (Commercial)", "FV", "RH"]
 land_contours = ["Lvl", "Bnk", "HLS", "Low"]
 
@@ -58,11 +48,6 @@ user_input = {
 
 input_df = pd.DataFrame([user_input])
 
-# -----------------------------------------------------------
-# Derived features — must match training logic
-# -----------------------------------------------------------
-
-# Ibadan neighborhood mapping (same logic as training)
 ibadan_neighs = ["Agbowo", "Bodija", "GRA", "Moniya", "Ojoo", "Sango", "IbadanNorth"]
 def map_to_ibadan(nbh):
     if pd.isna(nbh) or str(nbh).lower() == "nan":
@@ -71,63 +56,59 @@ def map_to_ibadan(nbh):
     return ibadan_neighs[h % len(ibadan_neighs)]
 
 input_df["ibadan_neighborhood"] = input_df["Neighborhood"].astype(str).apply(map_to_ibadan)
-
-# price_per_sqm and bed_bath_ratio exactly like training
 input_df["price_per_sqm"] = input_df["GrLivArea"] / (input_df["GrLivArea"] + 1)
 input_df["bed_bath_ratio"] = input_df["BedroomAbvGr"] / (input_df["FullBath"] + 0.5)
 
-# -----------------------------------------------------------
-# Display entered property
-# -----------------------------------------------------------
 st.write("### 🧾 Entered Property Details")
 st.dataframe(input_df)
 
-# -----------------------------------------------------------
-# Prediction
-# -----------------------------------------------------------
 if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
-    st.success(f"🏷️ Estimated Property Price: ₦{price * 1000 :,.0f}")
+    st.success(f"🏷️ Estimated Property Price: ₦{price * 10 :,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
-    # -------------------------------------------------------
-    # SHAP explanation (with patched booster fix)
-    # -------------------------------------------------------
     try:
-        booster = model.named_steps["model"].get_booster()
-
-        # Patch malformed base_score if necessary
-        config = json.loads(booster.save_config())
-        if "learner" in config and "learner_model_param" in config["learner"]:
-            base_score = config["learner"]["learner_model_param"].get("base_score", "0")
-            try:
-                float(base_score)
-            except:
-                config["learner"]["learner_model_param"]["base_score"] = "0.5"
-                booster.load_config(json.dumps(config))
-
-        explainer = shap.TreeExplainer(booster)
-        X_trans = model.named_steps["pre"].transform(input_df)
-        shap_values = explainer.shap_values(X_trans)
+        xgb_model = model.named_steps["model"]
+        try:
+            booster = xgb_model.get_booster()
+            base_score_attr = booster.attr("base_score")
+            if isinstance(base_score_attr, str):
+                clean_val = base_score_attr.strip("[]")
+                booster.set_attr(base_score=str(float(clean_val)))
+        except Exception as e:
+            print(f"Base score patch failed: {e}")
 
         try:
-            feature_names = model.named_steps["pre"].get_feature_names_out()
-        except Exception:
-            feature_names = [f"f{i}" for i in range(X_trans.shape[1])]
+            explainer = shap.TreeExplainer(xgb_model)
+        except Exception as e:
+            st.warning(f"TreeExplainer failed ({e}); using fallback.")
+            pre = model.named_steps["pre"]
+            X_trans = pre.transform(input_df)
+            explainer = shap.Explainer(xgb_model.predict, X_trans)
+
+        pre = model.named_steps["pre"]
+        X_trans = pre.transform(input_df)
+        shap_values = explainer(X_trans)
+        feature_names = pre.get_feature_names_out()
 
         st.subheader("📊 Feature Contribution (SHAP)")
         fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
-                values=shap_values[0],
+                values=shap_values.values[0],
                 base_values=explainer.expected_value,
                 data=X_trans[0],
-                feature_names=feature_names,
+                feature_names=feature_names
             ),
             show=False,
         )
         st.pyplot(fig)
+
+        mean_abs = np.abs(shap_values.values).mean(axis=0)
+        shap_df = pd.DataFrame({"feature": feature_names, "mean_abs_shap": mean_abs}).sort_values("mean_abs_shap", ascending=False)
+        st.subheader("🏆 Top 10 Features by SHAP Impact")
+        st.bar_chart(shap_df.head(10).set_index("feature"))
 
     except Exception as e:
         st.warning(f"SHAP explanation unavailable: {e}")
