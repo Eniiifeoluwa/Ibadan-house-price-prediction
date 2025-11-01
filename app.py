@@ -65,6 +65,7 @@ if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     pred_naira = np.expm1(log_pred)
     st.success(f"🏷️ Estimated Property Price: ₦{pred_naira:,.0f}")
+    st.caption("Prediction localized to Ibadan housing context")
 
     try:
         xgb_final = model.named_steps["model"]
@@ -75,7 +76,7 @@ if st.button("💰 Predict House Price"):
             X_trans = X_trans.toarray()
         X_trans = np.array(X_trans, dtype=float)
 
-        feature_names = np.array(preprocessor.get_feature_names_out())
+        feature_names = preprocessor.get_feature_names_out()
 
         try:
             booster = xgb_final.get_booster()
@@ -93,49 +94,40 @@ if st.button("💰 Predict House Price"):
 
         shap_values = explainer(X_trans)
 
-        base_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
+        base_value_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
         shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
 
-        # --- Waterfall plot in log-space ---
-        st.subheader("📊 Feature Contributions (SHAP) — log scale")
-        fig1, ax1 = plt.subplots(figsize=(8, 5))
+        base_naira = np.expm1(base_value_log)
+        # Proportional contribution of each feature in Naira
+        if shap_vals_log.sum() != 0:
+            shap_vals_naira = (shap_vals_log / shap_vals_log.sum()) * (pred_naira - base_naira)
+        else:
+            shap_vals_naira = np.zeros_like(shap_vals_log)
+
+        st.subheader("📊 Feature Contribution (SHAP) — in Naira")
+        fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
-                values=shap_vals_log,
-                base_values=base_log,
-                data=X_trans[0],
+                values=shap_vals_naira,
+                base_values=base_naira,
+                data=np.expm1(X_trans[0]),
                 feature_names=feature_names
             ),
             show=False
         )
-        st.pyplot(fig1)
+        st.pyplot(fig)
 
-        # --- Approximate contributions in Naira for top 10 features ---
-        diff_pred_base = pred_naira - np.expm1(base_log)
-        shap_naira = (np.abs(shap_vals_log) / np.sum(np.abs(shap_vals_log))) * diff_pred_base
-        shap_naira = np.sign(shap_vals_log) * shap_naira
+        shap_df = pd.DataFrame({
+            "feature": feature_names,
+            "shap_naira": shap_vals_naira,
+            "abs_shap": np.abs(shap_vals_naira)
+        }).sort_values("abs_shap", ascending=False)
 
-        top_idx = np.argsort(np.abs(shap_naira))[-10:][::-1]
-        top_features = feature_names[top_idx].tolist()
-        top_values = shap_naira[top_idx].tolist()
+        top_n = 10
+        shap_df_top = shap_df.head(top_n)
 
-        st.subheader("🏆 Top 10 Feature Contributions — Approximate in Naira")
-        fig2, ax2 = plt.subplots(figsize=(10, 6))
-        bars = ax2.barh(top_features, top_values, color='skyblue')
-        ax2.set_xlabel("Contribution to Price (₦)")
-        ax2.set_ylabel("Features")
-        ax2.set_title("Top 10 SHAP Feature Contributions — Naira")
-        ax2.invert_yaxis()  # largest contributors on top
-
-        # Add numeric labels
-        for bar, value in zip(bars, top_values):
-            ax2.text(bar.get_width() + 0.01*pred_naira, bar.get_y() + bar.get_height()/2,
-                     f"₦{value:,.0f}", va='center')
-
-        # Baseline expected price
-        ax2.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price: ₦{np.expm1(base_log):,.0f}")
-        ax2.legend()
-        st.pyplot(fig2)
+        st.subheader("🏆 Top 10 Features by SHAP Impact (₦)")
+        st.bar_chart(shap_df_top.set_index("feature")["shap_naira"])
 
     except Exception as e:
         st.warning(f"SHAP explanation unavailable: {e}")
