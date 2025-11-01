@@ -76,50 +76,52 @@ if st.button("💰 Predict House Price"):
 
         # Transform inputs
         X_trans = preprocessor.transform(input_df)
-
-        # Ensure dense numeric array for SHAP
         if hasattr(X_trans, "toarray"):
             X_trans = X_trans.toarray()
         X_trans = np.array(X_trans, dtype=float)
 
         feature_names = preprocessor.get_feature_names_out()
 
-        # Fix XGBoost base_score if stored as string with brackets
-        booster = xgb_final.get_booster()
-        base_score_attr = booster.attr("base_score")
-        if isinstance(base_score_attr, str):
-            clean_val = base_score_attr.replace("[", "").replace("]", "").strip()
-            try:
-                val = float(clean_val)
-            except:
-                val = 0.5
-            booster.set_attr(base_score=str(val))
+        # Patch base_score if needed
+        try:
+            booster = xgb_final.get_booster()
+            base_score_attr = booster.attr("base_score")
+            if isinstance(base_score_attr, str):
+                clean_val = base_score_attr.strip("[]")
+                booster.set_attr(base_score=str(float(clean_val)))
+        except:
+            pass
 
-        # SHAP explainer
-        explainer = shap.TreeExplainer(xgb_final)
-        shap_values = explainer.shap_values(X_trans)
+        # Initialize SHAP explainer
+        try:
+            explainer = shap.TreeExplainer(xgb_final)
+        except Exception as e:
+            st.warning(f"TreeExplainer failed ({e}), falling back to model-agnostic explainer.")
+            explainer = shap.Explainer(xgb_final.predict, X_trans)
+
+        # Compute SHAP values
+        shap_values = explainer(X_trans)
 
         # Waterfall plot
         st.subheader("📊 Feature Contribution (SHAP)")
         fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
-                values=shap_values[0],
-                base_values=explainer.expected_value,
+                values=shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values,
+                base_values=explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values,
                 data=X_trans[0],
                 feature_names=feature_names
             ),
-            show=False,
+            show=False
         )
         st.pyplot(fig)
 
-        # Top 10 features by mean absolute SHAP
-        mean_abs = np.abs(shap_values).mean(axis=0)
+        # Top-10 features by mean absolute SHAP
+        mean_abs = np.abs(shap_values.values).mean(axis=0) if hasattr(shap_values, "values") else np.abs(shap_values[0].values).mean(axis=0)
         shap_df = pd.DataFrame({
             "feature": feature_names,
             "mean_abs_shap": mean_abs
         }).sort_values("mean_abs_shap", ascending=False)
-
         st.subheader("🏆 Top 10 Features by SHAP Impact")
         st.bar_chart(shap_df.head(10).set_index("feature"))
 
