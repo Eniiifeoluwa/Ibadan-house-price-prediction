@@ -90,34 +90,30 @@ if st.button("💰 Predict House Price"):
 
         try:
             explainer = shap.TreeExplainer(xgb_final)
-        except Exception as e:
-            #st.warning(f"TreeExplainer failed ({e}), falling back to model-agnostic explainer.")
+        except:
             explainer = shap.Explainer(xgb_final.predict, X_trans)
 
-        # Compute SHAP values
         shap_values = explainer(X_trans)
 
-        # Waterfall plot
-        st.subheader("📊 Feature Contribution (SHAP)")
+        base_value = np.expm1(explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values)
+        shap_vals_naira = np.expm1(shap_values.values[0] + (explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values)) - base_value
+
+        st.subheader("📊 Feature Contribution (SHAP) — in Naira")
         fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
-                values=shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values,
-                base_values=explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values,
-                data=X_trans[0],
+                values=shap_vals_naira,
+                base_values=base_value,
+                data=np.expm1(X_trans[0]),
                 feature_names=feature_names
             ),
             show=False
         )
         st.pyplot(fig)
 
-        # Top-10 features by mean absolute SHAP
-        mean_abs = np.abs(shap_values.values).mean(axis=0) if hasattr(shap_values, "values") else np.abs(shap_values[0].values).mean(axis=0)
-        shap_df = pd.DataFrame({
-            "feature": feature_names,
-            "mean_abs_shap": mean_abs
-        }).sort_values("mean_abs_shap", ascending=False)
-        st.subheader("🏆 Top 10 Features by SHAP Impact")
+        mean_abs = np.abs(shap_vals_naira)
+        shap_df = pd.DataFrame({"feature": feature_names, "mean_abs_shap": mean_abs}).sort_values("mean_abs_shap", ascending=False)
+        st.subheader("🏆 Top 10 Features by SHAP Impact (₦)")
         st.bar_chart(shap_df.head(10).set_index("feature"))
 
     except Exception as e:
