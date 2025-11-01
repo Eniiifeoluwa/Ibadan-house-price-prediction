@@ -65,28 +65,18 @@ st.dataframe(input_df)
 if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
-    st.success(f"🏷️ Estimated Property Price: ₦{price * 10 :,.0f}")
+    st.success(f"🏷️ Estimated Property Price: ₦{price:,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
     try:
         xgb_model = model.named_steps["model"]
-        try:
-            booster = xgb_model.get_booster()
-            base_score_attr = booster.attr("base_score")
-            if isinstance(base_score_attr, str):
-                clean_val = base_score_attr.strip("[]")
-                booster.set_attr(base_score=str(float(clean_val)))
-        except Exception as e:
-            print(f"Base score patch failed: {e}")
+        booster = xgb_model.get_booster()
+        base_score_attr = booster.attr("base_score")
+        if isinstance(base_score_attr, str):
+            clean_val = base_score_attr.strip("[]")
+            booster.set_attr(base_score=str(float(clean_val)))
 
-        try:
-            explainer = shap.TreeExplainer(xgb_model)
-        except Exception as e:
-            st.warning(f"TreeExplainer failed ({e}); using fallback.")
-            pre = model.named_steps["pre"]
-            X_trans = pre.transform(input_df)
-            explainer = shap.Explainer(xgb_model.predict, X_trans)
-
+        explainer = shap.TreeExplainer(xgb_model)
         pre = model.named_steps["pre"]
         X_trans = pre.transform(input_df)
         shap_values = explainer(X_trans)
