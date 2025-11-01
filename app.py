@@ -88,7 +88,7 @@ st.dataframe(input_df)
 if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
-    st.success(f"🏷️ Estimated Property Price: ₦{price:,.0f}")
+    st.success(f"🏷️ Estimated Property Price: ₦{price * 1000 :,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
     # -------------------------------------------------------
