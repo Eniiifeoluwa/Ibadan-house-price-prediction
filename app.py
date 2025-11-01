@@ -97,20 +97,13 @@ if st.button("💰 Predict House Price"):
         base_value_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
         shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
 
-        base_naira = np.expm1(base_value_log)
-        # Proportional contribution of each feature in Naira
-        if shap_vals_log.sum() != 0:
-            shap_vals_naira = (shap_vals_log / shap_vals_log.sum()) * (pred_naira - base_naira)
-        else:
-            shap_vals_naira = np.zeros_like(shap_vals_log)
-
-        st.subheader("📊 Feature Contribution (SHAP) — in Naira")
+        st.subheader("📊 Feature Contribution (SHAP) — log scale")
         fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
-                values=shap_vals_naira,
-                base_values=base_naira,
-                data=np.expm1(X_trans[0]),
+                values=shap_vals_log,
+                base_values=base_value_log,
+                data=X_trans[0],
                 feature_names=feature_names
             ),
             show=False
@@ -119,15 +112,15 @@ if st.button("💰 Predict House Price"):
 
         shap_df = pd.DataFrame({
             "feature": feature_names,
-            "shap_naira": shap_vals_naira,
-            "abs_shap": np.abs(shap_vals_naira)
-        }).sort_values("abs_shap", ascending=False)
+            "mean_abs_shap": np.abs(shap_vals_log)
+        }).sort_values("mean_abs_shap", ascending=False)
 
         top_n = 10
         shap_df_top = shap_df.head(top_n)
 
-        st.subheader("🏆 Top 10 Features by SHAP Impact (₦)")
-        st.bar_chart(shap_df_top.set_index("feature")["shap_naira"])
+        st.subheader("🏆 Top 10 Features by SHAP Impact (log scale)")
+        st.bar_chart(shap_df_top.set_index("feature")["mean_abs_shap"])
+        st.caption(f"Predicted price: ₦{pred_naira:,.0f}")
 
     except Exception as e:
         st.warning(f"SHAP explanation unavailable: {e}")
