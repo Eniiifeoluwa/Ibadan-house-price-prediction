@@ -69,18 +69,20 @@ if st.button("💰 Predict House Price"):
     st.caption("Prediction localized to Ibadan housing context")
 
     try:
-        xgb_model = model.named_steps["model"]
-        booster = xgb_model.get_booster()
+        xgb_final = model.named_steps["model"]
+        preprocessor = model.named_steps["pre"]
+
+        X_trans = preprocessor.transform(input_df)
+        feature_names = preprocessor.get_feature_names_out()
+
+        booster = xgb_final.get_booster()
         base_score_attr = booster.attr("base_score")
         if isinstance(base_score_attr, str):
             clean_val = base_score_attr.strip("[]")
             booster.set_attr(base_score=str(float(clean_val)))
 
-        explainer = shap.TreeExplainer(xgb_model)
-        pre = model.named_steps["pre"]
-        X_trans = pre.transform(input_df)
+        explainer = shap.TreeExplainer(xgb_final)
         shap_values = explainer(X_trans)
-        feature_names = pre.get_feature_names_out()
 
         st.subheader("📊 Feature Contribution (SHAP)")
         fig, ax = plt.subplots(figsize=(8, 5))
