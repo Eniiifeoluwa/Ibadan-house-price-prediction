@@ -95,27 +95,31 @@ if st.button("💰 Predict House Price"):
         base_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
         shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
 
-        diff_pred_base = np.expm1(log_pred) - np.expm1(base_log)
-        abs_shap = np.abs(shap_vals_log)
-        if abs_shap.sum() != 0:
-            shap_naira = (abs_shap / abs_shap.sum()) * diff_pred_base
-            shap_naira = np.sign(shap_vals_log) * shap_naira
-        else:
-            shap_naira = np.zeros_like(shap_vals_log)
+        # Approximate contribution of each feature in Naira
+        contributions_naira = (np.expm1(base_log + shap_vals_log) - np.expm1(base_log))
 
-        # Top 10 features
-        top_idx = np.argsort(np.abs(shap_naira))[-10:][::-1]
-        top_features = feature_names[top_idx].tolist()
-        top_values = shap_naira[top_idx].tolist()
+        # Select top 10 features by absolute contribution
+        top_idx = np.argsort(np.abs(contributions_naira))[-10:][::-1]
+        top_features = feature_names[top_idx]
+        top_values = contributions_naira[top_idx]
 
+        # Plot horizontal bar chart with numeric labels
         st.subheader("📊 Top 10 Feature Contributions in Naira")
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.barh(top_features, top_values, color='skyblue')
-        ax.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price (₦{np.expm1(base_log):,.0f})")
+        fig, ax = plt.subplots(figsize=(10, 6))
+        bars = ax.barh(top_features, top_values, color='skyblue')
         ax.set_xlabel("Contribution to Price (₦)")
         ax.set_ylabel("Features")
-        ax.set_title("Top 10 SHAP Feature Contributions — Approximate in Naira")
-        ax.invert_yaxis()
+        ax.set_title("Top 10 SHAP Feature Contributions — Naira")
+        ax.invert_yaxis()  # largest at top
+
+        # Add numeric labels
+        for bar, value in zip(bars, top_values):
+            width = bar.get_width()
+            ax.text(width + 0.01*pred_naira, bar.get_y() + bar.get_height()/2,
+                    f"₦{value:,.0f}", va='center')
+
+        # Add vertical line for expected price
+        ax.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price: ₦{np.expm1(base_log):,.0f}")
         ax.legend()
         st.pyplot(fig)
 
