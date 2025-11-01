@@ -95,7 +95,6 @@ if st.button("💰 Predict House Price"):
         base_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
         shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
 
-        # Convert log-space to Naira contributions approximately
         diff_pred_base = np.expm1(log_pred) - np.expm1(base_log)
         abs_shap = np.abs(shap_vals_log)
         if abs_shap.sum() != 0:
@@ -104,13 +103,19 @@ if st.button("💰 Predict House Price"):
         else:
             shap_naira = np.zeros_like(shap_vals_log)
 
-        st.subheader("📊 Feature Contribution in Naira")
+        # Take top 10 features by absolute contribution
+        top_idx = np.argsort(np.abs(shap_naira))[-10:][::-1]
+        top_features = feature_names[top_idx]
+        top_values = shap_naira[top_idx]
+
+        st.subheader("📊 Top 10 Feature Contributions in Naira")
         fig, ax = plt.subplots(figsize=(8, 6))
-        ax.barh(feature_names, shap_naira)
+        ax.barh(top_features, top_values)
         ax.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price (₦{np.expm1(base_log):,.0f})")
         ax.set_xlabel("Contribution to Price (₦)")
         ax.set_ylabel("Features")
-        ax.set_title("SHAP Feature Contributions — Approximate in Naira")
+        ax.set_title("Top 10 SHAP Feature Contributions — Approximate in Naira")
+        ax.invert_yaxis()
         ax.legend()
         st.pyplot(fig)
 
