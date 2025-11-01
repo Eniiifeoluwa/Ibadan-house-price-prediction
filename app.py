@@ -92,36 +92,50 @@ if st.button("💰 Predict House Price"):
             explainer = shap.Explainer(xgb_final.predict, X_trans)
 
         shap_values = explainer(X_trans)
+
         base_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
         shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
 
-        # Approximate contribution of each feature in Naira
-        contributions_naira = (np.expm1(base_log + shap_vals_log) - np.expm1(base_log))
+        # --- Waterfall plot in log-space ---
+        st.subheader("📊 Feature Contributions (SHAP) — log scale")
+        fig1, ax1 = plt.subplots(figsize=(8, 5))
+        shap.waterfall_plot(
+            shap.Explanation(
+                values=shap_vals_log,
+                base_values=base_log,
+                data=X_trans[0],
+                feature_names=feature_names
+            ),
+            show=False
+        )
+        st.pyplot(fig1)
 
-        # Select top 10 features by absolute contribution
-        top_idx = np.argsort(np.abs(contributions_naira))[-10:][::-1]
-        top_features = feature_names[top_idx]
-        top_values = contributions_naira[top_idx]
+        # --- Approximate contributions in Naira for top 10 features ---
+        diff_pred_base = pred_naira - np.expm1(base_log)
+        shap_naira = (np.abs(shap_vals_log) / np.sum(np.abs(shap_vals_log))) * diff_pred_base
+        shap_naira = np.sign(shap_vals_log) * shap_naira
 
-        # Plot horizontal bar chart with numeric labels
-        st.subheader("📊 Top 10 Feature Contributions in Naira")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bars = ax.barh(top_features, top_values, color='skyblue')
-        ax.set_xlabel("Contribution to Price (₦)")
-        ax.set_ylabel("Features")
-        ax.set_title("Top 10 SHAP Feature Contributions — Naira")
-        ax.invert_yaxis()  # largest at top
+        top_idx = np.argsort(np.abs(shap_naira))[-10:][::-1]
+        top_features = feature_names[top_idx].tolist()
+        top_values = shap_naira[top_idx].tolist()
+
+        st.subheader("🏆 Top 10 Feature Contributions — Approximate in Naira")
+        fig2, ax2 = plt.subplots(figsize=(10, 6))
+        bars = ax2.barh(top_features, top_values, color='skyblue')
+        ax2.set_xlabel("Contribution to Price (₦)")
+        ax2.set_ylabel("Features")
+        ax2.set_title("Top 10 SHAP Feature Contributions — Naira")
+        ax2.invert_yaxis()  # largest contributors on top
 
         # Add numeric labels
         for bar, value in zip(bars, top_values):
-            width = bar.get_width()
-            ax.text(width + 0.01*pred_naira, bar.get_y() + bar.get_height()/2,
-                    f"₦{value:,.0f}", va='center')
+            ax2.text(bar.get_width() + 0.01*pred_naira, bar.get_y() + bar.get_height()/2,
+                     f"₦{value:,.0f}", va='center')
 
-        # Add vertical line for expected price
-        ax.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price: ₦{np.expm1(base_log):,.0f}")
-        ax.legend()
-        st.pyplot(fig)
+        # Baseline expected price
+        ax2.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price: ₦{np.expm1(base_log):,.0f}")
+        ax2.legend()
+        st.pyplot(fig2)
 
     except Exception as e:
         st.warning(f"SHAP explanation unavailable: {e}")
