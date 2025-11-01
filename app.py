@@ -65,7 +65,7 @@ st.dataframe(input_df)
 if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
-    st.success(f"🏷️ Estimated Property Price: ₦{price * 10:,.0f}")
+    st.success(f"🏷️ Estimated Property Price: ₦{price *10:,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
     try:
@@ -95,15 +95,18 @@ if st.button("💰 Predict House Price"):
 
         shap_values = explainer(X_trans)
 
-        base_value = np.expm1(explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values)
-        shap_vals_naira = np.expm1(shap_values.values[0] + (explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values)) - base_value
+        base_value_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
+        shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
+
+        base_value_naira = np.expm1(base_value_log)
+        shap_vals_naira = np.expm1(base_value_log + shap_vals_log) - base_value_naira
 
         st.subheader("📊 Feature Contribution (SHAP) — in Naira")
         fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
                 values=shap_vals_naira,
-                base_values=base_value,
+                base_values=base_value_naira,
                 data=np.expm1(X_trans[0]),
                 feature_names=feature_names
             ),
@@ -112,9 +115,81 @@ if st.button("💰 Predict House Price"):
         st.pyplot(fig)
 
         mean_abs = np.abs(shap_vals_naira)
-        shap_df = pd.DataFrame({"feature": feature_names, "mean_abs_shap": mean_abs}).sort_values("mean_abs_shap", ascending=False)
+        shap_df = pd.DataFrame({
+            "feature": feature_names,
+            "mean_abs_shap": mean_abs
+        }).sort_values("mean_abs_shap", ascending=False)
+
+        top_n = 10
+        shap_df_top = shap_df.head(top_n)
+
         st.subheader("🏆 Top 10 Features by SHAP Impact (₦)")
-        st.bar_chart(shap_df.head(10).set_index("feature"))
+        st.bar_chart(shap_df_top.set_index("feature"))
+
+    except Exception as e:
+        st.warning(f"SHAP explanation unavailable: {e}")if st.button("💰 Predict House Price"):
+    log_pred = model.predict(input_df)[0]
+    price = np.expm1(log_pred)
+    st.success(f"🏷️ Estimated Property Price: ₦{price*10:,.0f}")
+    st.caption("Prediction localized to Ibadan housing context")
+
+    try:
+        xgb_final = model.named_steps["model"]
+        preprocessor = model.named_steps["pre"]
+
+        X_trans = preprocessor.transform(input_df)
+        if hasattr(X_trans, "toarray"):
+            X_trans = X_trans.toarray()
+        X_trans = np.array(X_trans, dtype=float)
+
+        feature_names = preprocessor.get_feature_names_out()
+
+        try:
+            booster = xgb_final.get_booster()
+            base_score_attr = booster.attr("base_score")
+            if isinstance(base_score_attr, str):
+                clean_val = base_score_attr.strip("[]")
+                booster.set_attr(base_score=str(float(clean_val)))
+        except:
+            pass
+
+        try:
+            explainer = shap.TreeExplainer(xgb_final)
+        except:
+            explainer = shap.Explainer(xgb_final.predict, X_trans)
+
+        shap_values = explainer(X_trans)
+
+        base_value_log = explainer.expected_value if hasattr(explainer, "expected_value") else shap_values[0].base_values
+        shap_vals_log = shap_values.values[0] if hasattr(shap_values, "values") else shap_values[0].values
+
+        base_value_naira = np.expm1(base_value_log)
+        shap_vals_naira = np.expm1(base_value_log + shap_vals_log) - base_value_naira
+
+        st.subheader("📊 Feature Contribution (SHAP) — in Naira")
+        fig, ax = plt.subplots(figsize=(8, 5))
+        shap.waterfall_plot(
+            shap.Explanation(
+                values=shap_vals_naira,
+                base_values=base_value_naira,
+                data=np.expm1(X_trans[0]),
+                feature_names=feature_names
+            ),
+            show=False
+        )
+        st.pyplot(fig)
+
+        mean_abs = np.abs(shap_vals_naira)
+        shap_df = pd.DataFrame({
+            "feature": feature_names,
+            "mean_abs_shap": mean_abs
+        }).sort_values("mean_abs_shap", ascending=False)
+
+        top_n = 10
+        shap_df_top = shap_df.head(top_n)
+
+        st.subheader("🏆 Top 10 Features by SHAP Impact (₦)")
+        st.bar_chart(shap_df_top.set_index("feature"))
 
     except Exception as e:
         st.warning(f"SHAP explanation unavailable: {e}")
