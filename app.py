@@ -65,34 +65,30 @@ st.dataframe(input_df)
 if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
-    st.success(f"🏷️ Estimated Property Price: ₦{price:,.0f}")
+    st.success(f"🏷️ Estimated Property Price: ₦{price * 10:,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
     try:
         xgb_final = model.named_steps["model"]
         preprocessor = model.named_steps["pre"]
 
+        # Transform inputs
         X_trans = preprocessor.transform(input_df)
+        # Ensure it's dense numeric array
+        if hasattr(X_trans, "toarray"):
+            X_trans = X_trans.toarray()
+
         feature_names = preprocessor.get_feature_names_out()
 
-        booster = xgb_final.get_booster()
-        base_score_attr = booster.attr("base_score")
-        if isinstance(base_score_attr, str):
-            clean_val = base_score_attr.strip("[]")
-            try:
-                val = float(clean_val)
-            except Exception:
-                val = 0.5
-            booster.set_attr(base_score=str(val))
-
+        # SHAP explainer
         explainer = shap.TreeExplainer(xgb_final)
-        shap_values = explainer(X_trans)
+        shap_values = explainer.shap_values(X_trans)
 
         st.subheader("📊 Feature Contribution (SHAP)")
         fig, ax = plt.subplots(figsize=(8, 5))
         shap.waterfall_plot(
             shap.Explanation(
-                values=shap_values.values[0],
+                values=shap_values[0],
                 base_values=explainer.expected_value,
                 data=X_trans[0],
                 feature_names=feature_names
@@ -101,7 +97,7 @@ if st.button("💰 Predict House Price"):
         )
         st.pyplot(fig)
 
-        mean_abs = np.abs(shap_values.values).mean(axis=0)
+        mean_abs = np.abs(shap_values).mean(axis=0)
         shap_df = pd.DataFrame({"feature": feature_names, "mean_abs_shap": mean_abs}).sort_values("mean_abs_shap", ascending=False)
         st.subheader("🏆 Top 10 Features by SHAP Impact")
         st.bar_chart(shap_df.head(10).set_index("feature"))
