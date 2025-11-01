@@ -75,7 +75,7 @@ if st.button("💰 Predict House Price"):
             X_trans = X_trans.toarray()
         X_trans = np.array(X_trans, dtype=float)
 
-        feature_names = preprocessor.get_feature_names_out()
+        feature_names = np.array(preprocessor.get_feature_names_out())
 
         try:
             booster = xgb_final.get_booster()
@@ -103,14 +103,14 @@ if st.button("💰 Predict House Price"):
         else:
             shap_naira = np.zeros_like(shap_vals_log)
 
-        # Take top 10 features by absolute contribution
+        # Top 10 features
         top_idx = np.argsort(np.abs(shap_naira))[-10:][::-1]
-        top_features = feature_names[top_idx]
-        top_values = shap_naira[top_idx]
+        top_features = feature_names[top_idx].tolist()
+        top_values = shap_naira[top_idx].tolist()
 
         st.subheader("📊 Top 10 Feature Contributions in Naira")
         fig, ax = plt.subplots(figsize=(8, 6))
-        ax.barh(top_features, top_values)
+        ax.barh(top_features, top_values, color='skyblue')
         ax.axvline(np.expm1(base_log), color='red', linestyle='--', label=f"Expected Price (₦{np.expm1(base_log):,.0f})")
         ax.set_xlabel("Contribution to Price (₦)")
         ax.set_ylabel("Features")
