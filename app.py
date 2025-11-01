@@ -79,7 +79,11 @@ if st.button("💰 Predict House Price"):
         base_score_attr = booster.attr("base_score")
         if isinstance(base_score_attr, str):
             clean_val = base_score_attr.strip("[]")
-            booster.set_attr(base_score=str(float(clean_val)))
+            try:
+                val = float(clean_val)
+            except Exception:
+                val = 0.5
+            booster.set_attr(base_score=str(val))
 
         explainer = shap.TreeExplainer(xgb_final)
         shap_values = explainer(X_trans)
