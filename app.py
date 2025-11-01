@@ -1,23 +1,31 @@
+# ============================================
+# Streamlit App — Live Predictive House Prices in Ibadan
+# ============================================
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import shap
 import matplotlib.pyplot as plt
+import hashlib, json
 
 st.set_page_config(page_title="Ibadan House Price Predictor", layout="wide")
 
+# -----------------------------------------------------------
+# Load trained model
+# -----------------------------------------------------------
 @st.cache_resource
 def load_model():
-    model = joblib.load("artifacts/best_model_pipeline.joblib")
-    return model
+    return joblib.load("artifacts/best_model_pipeline.joblib")
 
 model = load_model()
 
 st.title("🏡 Live Predictive House Prices — Ibadan")
 st.caption("Localized predictive model for Ibadan's residential market")
 
-
+# -----------------------------------------------------------
+# Sidebar: property features
+# -----------------------------------------------------------
 st.sidebar.header("🏠 Property Features")
 
 neighs = ["Agbowo", "Bodija", "GRA", "Moniya", "Ojoo", "Sango", "IbadanNorth"]
@@ -41,45 +49,85 @@ user_input = {
     "YearRemodAdd": st.sidebar.slider("Year Remodeled/Added", 1950, 2025, 2010),
     "BsmtFullBath": st.sidebar.slider("Basement Full Baths", 0, 3, 1),
     "FullBath": st.sidebar.slider("Full Baths (Above Ground)", 1, 4, 2),
+    "BedroomAbvGr": st.sidebar.slider("Bedrooms Above Ground", 1, 10, 3),
     "distance_to_ui_km": st.sidebar.number_input("Distance to UI (km)", 0.1, 25.0, 5.0),
     "flood_risk": st.sidebar.selectbox("Flood Risk (1=Yes, 0=No)", [0, 1]),
     "power_reliability": st.sidebar.slider("Power Reliability (0–1)", 0.0, 1.0, 0.7),
     "age": st.sidebar.slider("Age of Building (yrs)", 0, 100, 20)
 }
 
-
-user_input["price_per_sqm"] = (user_input["GrLivArea"] * 5000 + user_input["1stFlrSF"] * 10) / (user_input["GrLivArea"] + 1)
-user_input["bed_bath_ratio"] = 3 / (user_input["FullBath"] + 0.5) 
-
 input_df = pd.DataFrame([user_input])
 
+# -----------------------------------------------------------
+# Derived features — must match training logic
+# -----------------------------------------------------------
 
+# Ibadan neighborhood mapping (same logic as training)
+ibadan_neighs = ["Agbowo", "Bodija", "GRA", "Moniya", "Ojoo", "Sango", "IbadanNorth"]
+def map_to_ibadan(nbh):
+    if pd.isna(nbh) or str(nbh).lower() == "nan":
+        return "Unknown"
+    h = int(hashlib.md5(str(nbh).encode("utf-8")).hexdigest()[:8], 16)
+    return ibadan_neighs[h % len(ibadan_neighs)]
+
+input_df["ibadan_neighborhood"] = input_df["Neighborhood"].astype(str).apply(map_to_ibadan)
+
+# price_per_sqm and bed_bath_ratio exactly like training
+input_df["price_per_sqm"] = input_df["GrLivArea"] / (input_df["GrLivArea"] + 1)
+input_df["bed_bath_ratio"] = input_df["BedroomAbvGr"] / (input_df["FullBath"] + 0.5)
+
+# -----------------------------------------------------------
+# Display entered property
+# -----------------------------------------------------------
 st.write("### 🧾 Entered Property Details")
 st.dataframe(input_df)
 
+# -----------------------------------------------------------
+# Prediction
+# -----------------------------------------------------------
 if st.button("💰 Predict House Price"):
     log_pred = model.predict(input_df)[0]
     price = np.expm1(log_pred)
     st.success(f"🏷️ Estimated Property Price: ₦{price:,.0f}")
     st.caption("Prediction localized to Ibadan housing context")
 
-
+    # -------------------------------------------------------
+    # SHAP explanation (with patched booster fix)
+    # -------------------------------------------------------
     try:
         booster = model.named_steps["model"].get_booster()
+
+        # Patch malformed base_score if necessary
+        config = json.loads(booster.save_config())
+        if "learner" in config and "learner_model_param" in config["learner"]:
+            base_score = config["learner"]["learner_model_param"].get("base_score", "0")
+            try:
+                float(base_score)
+            except:
+                config["learner"]["learner_model_param"]["base_score"] = "0.5"
+                booster.load_config(json.dumps(config))
+
         explainer = shap.TreeExplainer(booster)
         X_trans = model.named_steps["pre"].transform(input_df)
         shap_values = explainer.shap_values(X_trans)
-        feature_names = model.named_steps["pre"].get_feature_names_out()
+
+        try:
+            feature_names = model.named_steps["pre"].get_feature_names_out()
+        except Exception:
+            feature_names = [f"f{i}" for i in range(X_trans.shape[1])]
 
         st.subheader("📊 Feature Contribution (SHAP)")
-        shap.waterfall_plot = shap.plots.waterfall
         fig, ax = plt.subplots(figsize=(8, 5))
-        shap.waterfall_plot(shap.Explanation(
-            values=shap_values[0],
-            base_values=explainer.expected_value,
-            data=X_trans[0],
-            feature_names=feature_names
-        ), show=False)
+        shap.waterfall_plot(
+            shap.Explanation(
+                values=shap_values[0],
+                base_values=explainer.expected_value,
+                data=X_trans[0],
+                feature_names=feature_names,
+            ),
+            show=False,
+        )
         st.pyplot(fig)
+
     except Exception as e:
         st.warning(f"SHAP explanation unavailable: {e}")
